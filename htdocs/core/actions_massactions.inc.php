@@ -969,6 +969,56 @@ if (!$error && $massaction == 'validate' && $permissiontoadd) {
 			$result = $objecttmp->fetch($toselectid);
 			if ($result > 0) {
 				if (method_exists($objecttmp, 'validate')) {
+
+                    // TODO: Move this code to trigger in multicompany module
+                    // If
+                    // - multi-company module is enabled
+                    // - sharing is enabled
+                    // - object has entity and this entity different from current entity
+                    // - we are in globalcard or invoicelist context
+                    //
+                    // then we must get entity config for each object and set it in conf to be able to use it in object's methods
+                    if (
+                        !empty($conf->global->MAIN_MODULE_MULTICOMPANY) &&
+                        !empty($conf->global->MULTICOMPANY_SHARINGS_ENABLED) &&
+                        !empty($objecttmp->entity) && $objecttmp->entity != $conf->entity &&
+                        (in_array('globalcard', $hookmanager->contextarray) || in_array('invoicelist', $hookmanager->contextarray))
+                    ) {
+                        $actions = new ActionsMulticompany($db);
+
+                        // Loop on types of elements shared within module
+                        foreach ($actions->sharingelements as $element => $params) {
+
+                            // If
+                            // - element is objectnumber
+                            // - element is not disabled
+                            // - object element is equal to current element analyzed in loop (linking module name thanks to sharingmodulename if needed)
+                            // (this will ensure only invoices will be analyzed when working on invoices, orders when working on orders, ...)
+                            if (
+                                $params['type'] === 'objectnumber' &&
+                                empty($params['disable']) &&
+                                $objecttmp->element == $actions->sharingmodulename[$element]
+                            ) {
+
+                                // Check if object uses constants from Dolibarr
+                                // If not, we don't need to update anything
+                                if (is_array($params['constants']) && !empty($params['constants'])) {
+                                    // Get multicompany database table accesser
+                                    $actions->dao = new DaoMulticompany($db);
+
+                                    foreach ($params['constants'] as $constname) {
+                                        // Get object's entity config
+                                        $res = $actions->dao->getEntityConfig($objecttmp->entity, $constname);
+                                        if (!empty($res[$constname])) {
+                                            // override current entity config with object entity config
+                                            $conf->global->$constname = $res[$constname];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
 					$result = $objecttmp->validate($user);
 				} elseif (method_exists($objecttmp, 'setValid')) {
 					$result = $objecttmp->setValid($user);
